@@ -1,6 +1,6 @@
 """
 Weedmaps Admin → PostgreSQL Pipeline
-Runs daily via Railway cron.
+Runs Weekly via Railway cron.
 
 Flow:
   1. Login at weedmaps.com/login
@@ -40,8 +40,22 @@ WM_PASSWORD   = os.environ["WM_PASSWORD"]
 LOGIN_URL     = "https://weedmaps.com/login"
 ADMIN_URL     = "https://admin.weedmaps.com"
 
-SYNC_DATE     = date.today() - timedelta(days=1)
-MAX_ORDERS    = int(os.environ.get("WM_MAX_ORDERS", "200"))
+# Date range
+# Weekly cron:       leave WM_START_DATE/WM_END_DATE unset → uses DAYS_BACK=7
+# One-time backfill: set WM_START_DATE=04/01/2026, WM_END_DATE=06/15/2026
+_start_env = os.environ.get("WM_START_DATE")
+_end_env   = os.environ.get("WM_END_DATE")
+
+if _start_env and _end_env:
+    START_DATE = datetime.strptime(_start_env, "%m/%d/%Y").date()
+    END_DATE   = datetime.strptime(_end_env,   "%m/%d/%Y").date()
+    DAYS_BACK  = (END_DATE - START_DATE).days + 1
+else:
+    DAYS_BACK  = int(os.environ.get("WM_DAYS_BACK", "7"))
+    START_DATE = date.today() - timedelta(days=DAYS_BACK)
+    END_DATE   = date.today() - timedelta(days=1)
+
+MAX_ORDERS = int(os.environ.get("WM_MAX_ORDERS", "5000" if DAYS_BACK > 7 else "1000"))
 
 UUID_PATTERN  = re.compile(
     r"/orders/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
@@ -78,22 +92,23 @@ async def go_to_orders(page):
 
 async def apply_date_filter(page):
     """
-    Apply date filter for SYNC_DATE.
-    TODO: Capture the date filter interaction with codegen if not working.
-    The orders list likely has a date range picker in the filter bar.
+    Apply date range filter: START_DATE → END_DATE.
+    Daily run:  yesterday → yesterday  (DAYS_BACK=1)
+    Weekly run: 7 days ago → yesterday (DAYS_BACK=7)
+    TODO: Update selectors if date filter isn't applying correctly.
     """
-    date_str = SYNC_DATE.strftime("%m/%d/%Y")
-    log.info(f"Applying date filter: {date_str}")
+    start_str = START_DATE.strftime("%m/%d/%Y")
+    end_str   = END_DATE.strftime("%m/%d/%Y")
+    log.info(f"Applying date filter: {start_str} → {end_str}")
 
     try:
-        # Try common date filter patterns
         await page.click(
             '[data-testid="date-filter"], [data-test-id="date-filter"], '
             'button:has-text("Date"), .date-range-picker',
             timeout=5_000
         )
-        await page.fill('input[placeholder*="start"], input[name="start"]', date_str)
-        await page.fill('input[placeholder*="end"], input[name="end"]', date_str)
+        await page.fill('input[placeholder*="start"], input[name="start"]', start_str)
+        await page.fill('input[placeholder*="end"], input[name="end"]', end_str)
         await page.click('button:has-text("Apply"), button:has-text("Search")')
         await page.wait_for_load_state("networkidle", timeout=8_000)
         log.info("Date filter applied")
@@ -350,7 +365,7 @@ def _parse_int(val: str) -> int:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def main():
-    log.info(f"=== WM Pipeline starting — sync date: {SYNC_DATE} ===")
+    log.info(f"=== WM Pipeline starting — {START_DATE} → {END_DATE} (DAYS_BACK={DAYS_BACK}) ==="))
     db.ensure_tables()
 
     known_wmids = db.get_known_wmids()
