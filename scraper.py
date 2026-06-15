@@ -365,7 +365,7 @@ def _parse_int(val: str) -> int:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def main():
-    log.info(f"=== WM Pipeline starting — {START_DATE} → {END_DATE} (DAYS_BACK={DAYS_BACK}) ==="))
+    log.info(f"=== WM Pipeline starting — {START_DATE} → {END_DATE} (DAYS_BACK={DAYS_BACK}) ===")
     db.ensure_tables()
 
     known_wmids = db.get_known_wmids()
