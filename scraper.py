@@ -1,6 +1,6 @@
 """
 Weedmaps Admin → PostgreSQL Pipeline
-Runs Weekly via Railway cron.
+Runs weekly via Railway cron.
 
 Flow:
   1. Login at weedmaps.com/login
