@@ -96,14 +96,8 @@ async def login(context, page):
 
 async def go_to_orders(page):
     log.info("Navigating to All Orders...")
-    await page.locator("#side-nav-orders").click()
-    await page.get_by_test_id("orders-sidenav-link-active-false") \
-              .get_by_role("link", name="All Orders").click()
-    await page.wait_for_load_state("networkidle", timeout=10_000)
-    log.info("On All Orders page")
-
-
-# ── Step 2: Apply date filter ─────────────────────────────────────────────────
+    await page.goto(f"{ADMIN_URL}/orders", wait_until="networkidle", timeout=15_000)
+    log.info(f"On All Orders page — {page.url}")
 
 async def apply_date_filter(page):
     """
