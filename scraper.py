@@ -12,6 +12,7 @@ Flow:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -64,23 +65,31 @@ UUID_PATTERN  = re.compile(
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 
-async def login(page):
-    log.info("Logging in at weedmaps.com/login...")
-    await page.goto(LOGIN_URL, wait_until="networkidle")
+def load_auth_state() -> dict | None:
+    """Load saved WM session from WM_AUTH_STATE env var (base64 encoded)."""
+    raw = os.environ.get("WM_AUTH_STATE")
+    if not raw:
+        return None
+    try:
+        return json.loads(base64.b64decode(raw.encode()).decode())
+    except Exception as e:
+        log.warning(f"Could not decode WM_AUTH_STATE: {e}")
+        return None
 
-    await page.get_by_role("textbox", name="Email or username").fill(WM_EMAIL)
-    await page.get_by_role("textbox", name="Password").fill(WM_PASSWORD)
-    await page.get_by_role("button", name="Log in").click()
 
-    # Wait for redirect — WM may land on home page first then redirect
-    await page.wait_for_load_state("networkidle", timeout=15_000)
-    
-    # If still on login/home page, try navigating directly to admin
-    if "admin.weedmaps.com" not in page.url:
-        log.info(f"Landed on {page.url} — navigating directly to admin...")
-        await page.goto(f"{ADMIN_URL}/orders", wait_until="networkidle", timeout=15_000)
-    
-    log.info(f"Logged in — landed at {page.url}")
+async def login(context, page):
+    """Navigate to admin orders — session already loaded via storage_state."""
+    log.info("Loading saved WM session, navigating to orders...")
+    await page.goto(f"{ADMIN_URL}/orders", wait_until="networkidle", timeout=20_000)
+
+    # Verify we're actually logged in
+    if "login" in page.url or "weedmaps.com/" == page.url:
+        raise Exception(
+            "Session expired or invalid — re-run save_session.py locally "
+            "and update WM_AUTH_STATE in Railway."
+        )
+
+    log.info(f"Session valid — at {page.url}")
 
 
 # ── Step 1: Navigate to All Orders ───────────────────────────────────────────
@@ -384,7 +393,13 @@ async def main():
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
+        # Load saved auth session
+        auth_state = load_auth_state()
+        if not auth_state:
+            raise Exception("WM_AUTH_STATE env var missing — run save_session.py locally first.")
+
         context = await browser.new_context(
+            storage_state=auth_state,
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -394,7 +409,7 @@ async def main():
         page = await context.new_page()
 
         try:
-            await login(page)
+            await login(context, page)
             await go_to_orders(page)
             await apply_date_filter(page)
 
