@@ -72,8 +72,14 @@ async def login(page):
     await page.get_by_role("textbox", name="Password").fill(WM_PASSWORD)
     await page.get_by_role("button", name="Log in").click()
 
-    # Wait for redirect to admin portal
-    await page.wait_for_url(f"{ADMIN_URL}/**", timeout=15_000)
+    # Wait for redirect — WM may land on home page first then redirect
+    await page.wait_for_load_state("networkidle", timeout=15_000)
+    
+    # If still on login/home page, try navigating directly to admin
+    if "admin.weedmaps.com" not in page.url:
+        log.info(f"Landed on {page.url} — navigating directly to admin...")
+        await page.goto(f"{ADMIN_URL}/orders", wait_until="networkidle", timeout=15_000)
+    
     log.info(f"Logged in — landed at {page.url}")
 
 
